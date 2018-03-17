@@ -130,6 +130,53 @@ showStatus () {
     echo -e $reset"Artist: $artist\nAlbum: $album\nTrack: $track \nPosition: $position / $duration";
 }
 
+getAccessToken() {
+    cecho "Connecting to Spotify's API";
+
+    SPOTIFY_TOKEN_URI="https://accounts.spotify.com/api/token";
+    SHPOTIFY_CREDENTIALS=$(printf "${CLIENT_ID}:${CLIENT_SECRET}" | base64 | tr -d "\n");
+
+    SPOTIFY_TOKEN_RESPONSE_DATA=$( \
+        curl "${SPOTIFY_TOKEN_URI}" \
+            --silent \
+            -X "POST" \
+            -H "Authorization: Basic ${SHPOTIFY_CREDENTIALS}" \
+            -d "grant_type=client_credentials" \
+    )
+    if ! [[ "${SPOTIFY_TOKEN_RESPONSE_DATA}" =~ "access_token" ]]; then
+        cecho "Autorization failed, please check ${USER_CONFG_FILE}"
+        cecho "${SPOTIFY_TOKEN_RESPONSE_DATA}"
+        showAPIHelp
+        exit 1
+    fi
+    SPOTIFY_ACCESS_TOKEN=$( \
+        printf "${SPOTIFY_TOKEN_RESPONSE_DATA}" \
+        | grep -E -o '"access_token":".*",' \
+        | sed 's/"access_token"://g' \
+        | sed 's/"//g' \
+        | sed 's/,.*//g' \
+    )
+}
+
+searchAndPlay() {
+    type="$1"
+    Q="$2"
+
+    getAccessToken;
+
+    cecho "Searching ${type}s for: $Q";
+
+    SPOTIFY_PLAY_URI=$( \
+        curl -s -G $SPOTIFY_SEARCH_API \
+            -H "Authorization: Bearer ${SPOTIFY_ACCESS_TOKEN}" \
+            -H "Accept: application/json" \
+            --data-urlencode "q=$Q" \
+            -d "type=$type&limit=1&offset=0" \
+        | grep -E -o "spotify:$type:[a-zA-Z0-9]+" -m 1
+    )
+    echo "play uri: ${SPOTIFY_PLAY_URI}"
+}
+
 if [ $# = 0 ]; then
     showHelp;
 else
@@ -148,7 +195,6 @@ while [ $# -gt 0 ]; do
                 array=( $@ );
                 len=${#array[@]};
                 SPOTIFY_SEARCH_API="https://api.spotify.com/v1/search";
-                SPOTIFY_TOKEN_URI="https://accounts.spotify.com/api/token";
                 if [ -z "${CLIENT_ID}" ]; then
                     cecho "Invalid Client ID, please update ${USER_CONFIG_FILE}";
                     showAPIHelp;
@@ -159,52 +205,7 @@ while [ $# -gt 0 ]; do
                     showAPIHelp;
                     exit 1;
                 fi
-                SHPOTIFY_CREDENTIALS=$(printf "${CLIENT_ID}:${CLIENT_SECRET}" | base64 | tr -d "\n");
                 SPOTIFY_PLAY_URI="";
-
-                getAccessToken() {
-                    cecho "Connecting to Spotify's API";
-
-                    SPOTIFY_TOKEN_RESPONSE_DATA=$( \
-                        curl "${SPOTIFY_TOKEN_URI}" \
-                            --silent \
-                            -X "POST" \
-                            -H "Authorization: Basic ${SHPOTIFY_CREDENTIALS}" \
-                            -d "grant_type=client_credentials" \
-                    )
-                    if ! [[ "${SPOTIFY_TOKEN_RESPONSE_DATA}" =~ "access_token" ]]; then
-                        cecho "Autorization failed, please check ${USER_CONFG_FILE}"
-                        cecho "${SPOTIFY_TOKEN_RESPONSE_DATA}"
-                        showAPIHelp
-                        exit 1
-                    fi
-                    SPOTIFY_ACCESS_TOKEN=$( \
-                        printf "${SPOTIFY_TOKEN_RESPONSE_DATA}" \
-                        | grep -E -o '"access_token":".*",' \
-                        | sed 's/"access_token"://g' \
-                        | sed 's/"//g' \
-                        | sed 's/,.*//g' \
-                    )
-                }
-
-                searchAndPlay() {
-                    type="$1"
-                    Q="$2"
-
-                    getAccessToken;
-
-                    cecho "Searching ${type}s for: $Q";
-
-                    SPOTIFY_PLAY_URI=$( \
-                        curl -s -G $SPOTIFY_SEARCH_API \
-                            -H "Authorization: Bearer ${SPOTIFY_ACCESS_TOKEN}" \
-                            -H "Accept: application/json" \
-                            --data-urlencode "q=$Q" \
-                            -d "type=$type&limit=1&offset=0" \
-                        | grep -E -o "spotify:$type:[a-zA-Z0-9]+" -m 1
-                    )
-                    echo "play uri: ${SPOTIFY_PLAY_URI}"
-                }
 
                 case $2 in
                     "list"  )
@@ -263,6 +264,35 @@ while [ $# -gt 0 ]; do
                 cecho "Playing Spotify.";
                 osascript -e 'tell application "Spotify" to play';
             fi
+            break ;;
+        "save"     )
+            cecho "Saving Song.";
+            getAccessToken;
+
+            status=$( \
+                curl -sL -w "%{http_code}" "http://www.google.com/" -o /dev/null \
+            )
+
+            #curl -sL -w "%{http_code}" "http://www.google.com/" -o /dev/null \
+
+            status=$( \
+                curl -s PUT -w "%{http_code}" "https://api.spotify.com/v1/me/tracks?ids=7ouMYWpwJ422jRcDASZB7P,4VqPOruhp5EdPBeR92t6lQ,2takcwOaAZWiXQijPHIx7B" \
+                -H "Accept: application/json" \
+                -H "Authorization: Bearer $SPOTIFY_ACCESS_TOKEN" \
+            )
+
+            echo $status
+
+            #if [ $status = "200" ]; then
+              #cecho "Song saved.";
+            #else
+              #cecho "Error saving song.";
+            #fi
+
+            #results=$( \
+              #curl -s -put $SPOTIFY_SEARCH_API --data-urlencode "q=$Q" -d "type=playlist&limit=10&offset=0" -H "Accept: application/json" -H "Authorization: Bearer ${SPOTIFY_ACCESS_TOKEN}" \
+              #| grep -E -o "spotify:user:[a-zA-Z0-9_]+:playlist:[a-zA-Z0-9]+" -m 10 \
+              #)
             break ;;
 
         "pause"    )
